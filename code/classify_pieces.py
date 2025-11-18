@@ -14,3 +14,4 @@ def extract_pieces(board, board_name):
             piece = board[y_top: y_bottom, x_left: x_right]
             piece_idx = i * 16 + j
             save_image(piece, f"extracted_pieces/{board_name[:-4]}", f"{piece_idx}.jpg")
+            # show_image("t", piece)
