@@ -1,3 +1,12 @@
 .idea/
-/code/saved-train-imgs/
+*.txt
+/code/aux_imgs
+/code/extracted_pieces
+/code/fake_test
+/code/train
+/code/templates/numbers/1/[0-9]*.jpg
+/code/templates/numbers/2/[0-9]*.jpg
+/code/templates/numbers/1/result
+/code/templates/numbers/2/result
+/code/templates/shapes/*/
 __pycache__

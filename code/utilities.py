@@ -31,10 +31,12 @@ def save_image(img, directory_path, file_name):
     #     print(f"Saved file: {full_path}")
 
 
-def check_display_and_save(img, img_name, displays, saves, key):
+def check_display_and_save(img, img_name, save_dir, displays, saves, key):
     if displays.get(key):
         show_image(key, img)
 
     if saves.get(key):
-        dir_path = "saved-train-imgs/" + key
+        dir_path = f"{save_dir}/{key}"
         save_image(img, dir_path, img_name)
+
+

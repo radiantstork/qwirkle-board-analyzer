@@ -4,6 +4,8 @@ from utilities import show_image, draw_board_corners, save_image, check_display_
 
 
 def get_board_corners(edges):
+    # edges_copy = cv.cvtColor(edges.copy(), cv.COLOR_GRAY2BGR)
+
     top_left = top_right = bottom_left = bottom_right = None
     contours, _ = cv.findContours(edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     max_area = 0
@@ -23,16 +25,20 @@ def get_board_corners(edges):
             possible_top_right = contours[i].squeeze()[np.argmin(diff)]
             possible_bottom_left = contours[i].squeeze()[np.argmax(diff)]
 
-            if cv.contourArea(np.array([[possible_top_left], [possible_top_right], [possible_bottom_right],
-                                        [possible_bottom_left]])) > max_area:
-                max_area = cv.contourArea(np.array(
-                    [[possible_top_left], [possible_top_right], [possible_bottom_right], [possible_bottom_left]]))
-
+            # points = np.array([[possible_top_left], [possible_top_right], [possible_bottom_right],
+            #                                 [possible_bottom_left]])
+            area = cv.contourArea(np.array([[possible_top_left], [possible_top_right], [possible_bottom_right],
+                                            [possible_bottom_left]]))
+            # if area < 10000:
+            #     cv.polylines(edges_copy, points, isClosed=True, color=210, thickness=10)
+            if area > max_area:
+                max_area = area
                 top_left = possible_top_left
                 bottom_right = possible_bottom_right
                 top_right = possible_top_right
                 bottom_left = possible_bottom_left
 
+    # show_image("test", edges_copy)
     return top_left, top_right, bottom_right, bottom_left
 
 
@@ -46,47 +52,65 @@ def warp_board_perspective(img, width, height, corners):
     return cv.warpPerspective(img, M, (width, height))
 
 
-def get_canny_edges(img, img_name, displays, saves):
-    # TODO: check utilities for inverted images
-    r = cv.split(img)[2]
-    cdas(r, img_name, displays, saves, "split")
+def get_canny_edges(img, img_name, save_dir, displays, saves):
+    img_transformed = cv.split(img)[2]
+    cdas(img_transformed, img_name, save_dir, displays, saves, "split")
 
     # TODO: experiment with threshold values
-    _, thresh = cv.threshold(r, 80, 150, cv.THRESH_BINARY)
-    cdas(thresh, img_name, displays, saves, "thresh")
+    _, img_transformed = cv.threshold(img_transformed, 100, 150, cv.THRESH_BINARY_INV)
+    cdas(img_transformed, img_name, save_dir, displays, saves, "thresh")
+
+    img_transformed = cv.medianBlur(img_transformed, 7)
+    cdas(img_transformed, img_name, save_dir, displays, saves, "mblur")
 
     # TODO: mess around with iteration counts and order of operations
-    kernel = np.ones((3, 3), np.uint8)
-    thresh = cv.erode(thresh, kernel, iterations=2)
-    cdas(thresh, img_name, displays, saves, "erode")
-    thresh = cv.dilate(thresh, kernel, iterations=1)
-    cdas(thresh, img_name, displays, saves, "dilate")
+    kernel = np.ones((5, 5), np.uint8)
+    img_transformed = cv.dilate(img_transformed, kernel, iterations=2)
+    cdas(img_transformed, img_name, save_dir, displays, saves, "dilate")
+    img_transformed = cv.erode(img_transformed, kernel, iterations=1)
+    cdas(img_transformed, img_name, save_dir, displays, saves, "erode")
+
+    # invert back
+    img_transformed = ~img_transformed
 
     # TODO: experiment with threshold values
-    edges = cv.Canny(thresh, 50, 150)
-    cdas(edges, img_name, displays, saves, "edges")
+    edges = cv.Canny(img_transformed, 50, 150)
+    cdas(edges, img_name, save_dir, displays, saves, "edges")
+
+    # TODO: there is always a horizontal line above the board
+    # lsd = cv.createLineSegmentDetector()
+    # lines = lsd.detect(edges)[0]
+    # lines = lines.reshape(-1, 4)
+    # min_y = img.shape[0]
+    # for line in lines:
+    #     if line[1] < min_y:
+    #         min_y = line[1]
+    #     if line[3] < min_y:
+    #         min_y = line[3]
+    # for line in lines:
+    #     if min_y - 75 < line[1] < min_y + 75 and min_y - 75 < line[3] < min_y + 75:
+    #         cv.line(edges, (int(line[0]), int(line[1])), (int(line[2]), int(line[3])), 0, 20)
+    # show_image("t", edges)
+    # line = max(lines, key=lambda x: (np.sqrt((x[2] - x[0]) ** 2 + (x[3] - x[1]) ** 2)))
 
     return edges
 
 
-def extract_board(img, img_name, displays, saves):
-    cdas(img, img_name, displays, saves, "original")
+def extract_board(img, img_name, save_dir, displays, saves):
+    cdas(img, img_name, save_dir, displays, saves, "original")
 
-    edges = get_canny_edges(img, img_name, displays, saves)
+    edges = get_canny_edges(img, img_name, save_dir, displays, saves)
 
     img_copy = img.copy()
     corners = get_board_corners(edges)
     draw_board_corners(img_copy, corners)
-    cdas(img_copy, img_name, displays, saves, "corners")
+    cdas(img_copy, img_name, save_dir, displays, saves, "corners")
 
     # TODO: experiment with values (256, 512, 768, 1024, 1280, 1536, 1792, 2048, 2304, 2560, 2816, 3072)
     width = 3072
     height = 3072
-    result = warp_board_perspective(img_copy, width, height, corners)
+    result = warp_board_perspective(img, width, height, corners)
 
-    cdas(result, img_name, displays, saves, "result")
+    cdas(result, img_name, save_dir, displays, saves, "result")
 
     return result
-
-
-
