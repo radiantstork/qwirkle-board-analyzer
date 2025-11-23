@@ -1,26 +1,16 @@
 import cv2 as cv
 import numpy as np
-from utilities import show_image, save_image, load_templates, draw_board_from_config_matrix as db, draw_contours
+from utilities import show_image, save_image, draw_board_from_config_matrix as db, draw_contours
+from utilities import extend_piece, get_piece_outline
+from piece_classification import classify_piece_color, classify_piece_shape
+from calculate_score import get_score
+from global_variables import hardcoded_color_ranges
 
-hardcoded_color_ranges = {
-    "red": ((170, 100, 100), (180, 255, 255)),
-    "orange": ((6, 46, 97), (20, 255, 255)),
-    "yellow": ((25, 100, 100), (35, 255, 255)),
-    "green": ((59, 174, 0), (80, 255, 255)),
-    "blue": ((100, 100, 100), (120, 255, 255)),
-    "white": ((30, 0, 212), (151, 31, 255)),
-    "black": ((0, 0, 0), (179, 255, 85))
-}
-colors = ("red", "orange", "yellow", "green", "blue", "white")
-shapes = ("star8", "diamond", "star4", "cross", "square", "circle")
 mask_cache = {}
-templates = load_templates()
 
 
-def get_mask(board):
+def get_mask_of_black_pieces(board):
     lower, upper = hardcoded_color_ranges["black"]
-    lower = np.array(lower)
-    upper = np.array(upper)
 
     hsv = cv.cvtColor(board, cv.COLOR_BGR2HSV)
     mask = cv.inRange(hsv, lower, upper)
@@ -36,18 +26,14 @@ def get_mask(board):
     mask = ~mask
     # show_image("negated mask x2", mask)
 
-    # save_image(mask, "../code", "mask_black.jpg")
+    mask = cv.medianBlur(mask, 21)
+    # show_image("mblur", mask)
 
     return mask
 
 
 def get_contours(mask, list_type, min_area=0, max_area=float("inf"), hw_diff_thresh=15):
-    if list_type == "external":
-        contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    elif list_type == "list":
-        contours, _ = cv.findContours(mask, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
-    else:
-        return None
+    contours, _ = cv.findContours(mask, list_type, cv.CHAIN_APPROX_SIMPLE)
 
     filtered_contours = []
     for c in contours:
@@ -59,9 +45,7 @@ def get_contours(mask, list_type, min_area=0, max_area=float("inf"), hw_diff_thr
     return filtered_contours
 
 
-def get_cell_index_for_contour(board, contour):
-    x, y, w, h = cv.boundingRect(contour)
-
+def get_position_from_contour(board, x, y, w, h):
     area_of_interest = board[y:y + h, x:x + w]
 
     x_center = x + w // 2
@@ -73,28 +57,6 @@ def get_cell_index_for_contour(board, contour):
     return row, col, area_of_interest
 
 
-def classify_piece_color(piece):
-    # show_image("piece", piece)
-
-    max_count = 0
-    piece_color = None
-
-    for color in colors:
-        lower, upper = hardcoded_color_ranges.get(color)
-
-        hsv = cv.cvtColor(piece, cv.COLOR_BGR2HSV)
-        mask = cv.inRange(hsv, lower, upper)
-
-        # show_image(f"{color}", mask)
-
-        count = cv.countNonZero(mask)
-        if count > max_count:
-            max_count = count
-            piece_color = color
-
-    return piece_color
-
-
 def get_mask_diff(board_current, board_prev, board_current_name, board_prev_name):
     kernel = np.ones((5, 5), np.uint8)
 
@@ -103,12 +65,12 @@ def get_mask_diff(board_current, board_prev, board_current_name, board_prev_name
     # show_image("p", board_prev)
     # show_image("c", board_current)
 
-    mask_current = get_mask(board_current)
+    mask_current = get_mask_of_black_pieces(board_current)
     mask_cache[board_current_name[:-4]] = mask_current
     if board_prev_name[:-4] in mask_cache:
         mask_prev = mask_cache[board_prev_name[:-4]]
     else:
-        mask_prev = get_mask(board_prev)
+        mask_prev = get_mask_of_black_pieces(board_prev)
     # show_image("mask prev", mask_prev)
     # show_image("mask current", mask_current)
 
@@ -139,122 +101,46 @@ def get_mask_diff(board_current, board_prev, board_current_name, board_prev_name
     return mask_diff
 
 
-def get_pieces_from_contour(board, board_name, contour, config):
-    crop_amount = 30
-    x, y, w, h = cv.boundingRect(contour)
-    x += crop_amount
-    y += crop_amount
-    w -= crop_amount
-    h -= crop_amount
+def update_config(board, board_name, config, x_piece, y_piece, w_piece, h_piece, changes=None):
+    row, col, piece = get_position_from_contour(board=board, x=x_piece, y=y_piece, w=w_piece, h=h_piece)
 
-    row_count = round(h / 192)
-    column_count = round(w / 192)
-
-    if row_count == 0 or column_count == 0:
-        print(f"0 rows, 0 columns {board_name}")
-        return None
-    if row_count > 1 and column_count > 1:
-        print(f"2+ rows 2+ columns {board_name}")
+    if config[row][col] not in ("0", "1", "2"):
+        print(f"({row},{col}) overlapping pieces {board_name}")
         return None
 
-    w_piece = w // column_count
-    h_piece = h // row_count
+    # if board_name == "3_09.jpg":
+    #     show_image("before extend/outline", piece)
 
-    crop_amount = 30
+    x_piece, y_piece, w_piece, h_piece = extend_piece(amount=50,
+                                                      x_piece=x_piece, y_piece=y_piece,
+                                                      w_piece=w_piece, h_piece=h_piece)
 
-    if row_count == 1 and column_count == 1:
-        x_center = x + w // 2
-        y_center = y + h // 2
+    # if board_name == "3_09.jpg":
+    #     aux = board[y_piece:y_piece+h_piece, x_piece:x_piece+w_piece]
+    #     show_image("extended", aux)
 
-        row = y_center // 192
-        col = x_center // 192
+    piece, _, _, _, _ = get_piece_outline(board=board, board_name=board_name,
+                                          x_piece=x_piece, y_piece=y_piece, w_piece=w_piece, h_piece=h_piece)
 
-        if config[row][col] != "0":
-            if config[row][col] == "1":
-                print("piece placed on 1")
-            elif config[row][col] == "2":
-                print("piece placed on 2")
-            else:
-                print(f"({row},{col}) overlapping pieces {board_name}")
-                return None
+    # if board_name == "1_07.jpg":
+    #     show_image("outlined", piece)
 
-        # print(row, col)
+    # show_image("piece", piece)
 
-        # show_image("piece", piece)
+    color = classify_piece_color(piece=piece)
+    shape = classify_piece_shape(piece=piece)
 
-        piece = board[y + crop_amount:y + h - crop_amount, x + crop_amount:x + w - crop_amount]
+    if changes is not None:
+        if config[row][col] in ("1", "2"):
+            changes.append((row, col, int(config[row][col])))
+        else:
+            changes.append((row, col, False))
 
-        piece_color = classify_piece_color(piece)
-
-        config[row][col] = piece_color[0]
-
-    elif row_count == 1:
-        for j in range(column_count):
-            # cv.rectangle(board, (x, y), (x + w, y + h), (0, 0, 255), 10)
-            # cv.line(board, (x + w_piece * j, y), (x + w_piece * j, y + h), (0, 0, 255), 10)
-
-            x_start = x + w_piece * j
-            y_start = y
-            x_end = x + w_piece * (j + 1)
-            y_end = y + h
-
-            x_center = (x_start + x_end) // 2
-            y_center = (y_start + y_end) // 2
-            col = x_center // 192
-            row = y_center // 192
-
-            if config[row][col] != "0":
-                if config[row][col] == "1":
-                    print("piece placed on 1")
-                elif config[row][col] == "2":
-                    print("piece placed on 2")
-                else:
-                    print(f"({row},{col}) overlapping pieces {board_name}")
-                    continue
-
-            piece = board[y_start + crop_amount:y_end - crop_amount, x_start + crop_amount:x_end - crop_amount]
-
-            # show_image("piece", piece)
-
-            color = classify_piece_color(piece)
-
-            config[row][col] = color[0]
-
-    elif column_count == 1:
-        for i in range(row_count):
-            # cv.rectangle(board, (x, y), (x + w, y + h), (0, 0, 255), 10)
-            # cv.line(board, (x, y + h_piece * i), (x + w, y + h_piece * i), (0, 0, 255), 10)
-
-            x_start = x
-            x_end = x + w
-            y_start = y + h_piece * i
-            y_end = y + h_piece * (i + 1)
-
-            x_center = (x_start + x_end) // 2
-            y_center = (y_start + y_end) // 2
-
-            col = x_center // 192
-            row = y_center // 192
-
-            if config[row][col] != "0":
-                if config[row][col] == "1":
-                    print("piece placed on 1")
-                elif config[row][col] == "2":
-                    print("piece placed on 2")
-                else:
-                    print(f"({row},{col}) overlapping pieces {board_name}")
-                    continue
-
-            piece = board[y_start + crop_amount:y_end - crop_amount, x_start + crop_amount:x_end - crop_amount]
-
-            # show_image("piece", piece)
-
-            color = classify_piece_color(piece)
-
-            config[row][col] = color[0]
+    config[row][col] = f"{shape}{color[0]}"
 
 
 def get_number_pieces(board, config):
+    # TODO: add these hardcoded red values to the dictionary
     lower1 = np.array([0, 116, 106])
     upper1 = np.array([9, 253, 255])
     lower2 = np.array([160, 116, 106])
@@ -268,98 +154,101 @@ def get_number_pieces(board, config):
 
     # show_image("mask", mask)
 
-    contours = get_contours(mask, list_type="list", min_area=1000, max_area=8000, hw_diff_thresh=20)
+    # TODO: check values
+    contours = get_contours(mask=mask, list_type=cv.RETR_LIST, min_area=1000, max_area=8000, hw_diff_thresh=20)
 
     for c in contours:
-        # x, y, w, h = cv.boundingRect(c)
+        x, y, w, h = cv.boundingRect(c)
+
         # cv.rectangle(board, (x, y), (x+w, y+h), 255, 10)
 
-        row, col, piece = get_cell_index_for_contour(board, c)
+        row, col, piece = get_position_from_contour(board=board, x=x, y=y, w=w, h=h)
+
+        # show_image("piece", piece)
+
+        # TODO: check value
         if cv.contourArea(c) >= 5000:
             config[row][col] = "2"
         else:
             config[row][col] = "1"
 
-        # show_image("piece", piece)
     # show_image("b", board)
 
 
-def resize_image(piece):
-    h, w = piece.shape[:2]
+def get_pieces_from_contour(board, board_name, contour, config, changes, contour_crop):
+    x, y, w, h = cv.boundingRect(contour)
+    w -= contour_crop
+    h -= contour_crop
 
-    pad_h = 200 - h
-    pad_w = 200 - w
+    row_count = round(h / 192)
+    column_count = round(w / 192)
 
-    top = pad_h // 2
-    bottom = pad_h - top
-    left = pad_w // 2
-    right = pad_w - left
+    if row_count == 0 or column_count == 0:
+        print(f"0 rows, 0 columns {board_name}")
+        return None
 
-    resized_img = cv.copyMakeBorder(src=piece, top=top, bottom=bottom, left=left, right=right,
-                                    borderType=cv.BORDER_CONSTANT, value=(0, 0, 0))
+    if row_count > 1 and column_count > 1:
+        print(f"{row_count} rows {column_count} columns {board_name}")
+        return None
 
-    return resized_img
+    x += contour_crop
+    y += contour_crop
 
+    w_piece = w // column_count
+    h_piece = h // row_count
 
-def classify_piece_shape(piece):
-    # show_image("piece", piece)
-
-    lower, upper = hardcoded_color_ranges["black"]
-    lower = np.array(lower)
-    upper = np.array(upper)
-
-    piece = cv.cvtColor(piece, cv.COLOR_BGR2HSV)
-
-    mask = cv.inRange(piece, lower, upper)
-    mask = ~mask
-
-    mask = resize_image(mask)
-
-    # show_image("mask", mask)
-
-    best_score = -1
-    shape = None
-    for i, template in enumerate(templates):
-        template = cv.cvtColor(template, cv.COLOR_BGR2GRAY)
-
-        result = cv.matchTemplate(mask, template, cv.TM_CCOEFF_NORMED)
-
-        _, score, _, _ = cv.minMaxLoc(result)
-
-        if score > best_score:
-            shape = shapes[i]
-            best_score = score
-
-    return shape
-
-
-def get_initial_board_config(board):
-    # show_image("board", board)
-
-    mask = get_mask(board)
-    mask = ~mask
-    contours = get_contours(mask, "list", min_area=3000, max_area=25000)
-
-    config = [["0" for _ in range(16)] for _ in range(16)]
-    for c in contours:
-        row, col, piece = get_cell_index_for_contour(board, c)
+    if row_count == 1 and column_count == 1:
+        update_config(board=board, board_name=board_name, config=config, changes=changes,
+                      x_piece=x, y_piece=y, w_piece=w_piece, h_piece=h_piece)
 
         # show_image("piece", piece)
 
-        # resized = resize_image(piece)
-        # show_image("resized", resized)
+    elif row_count == 1:
+        for j in range(column_count):
+            # cv.rectangle(board, (x, y), (x + w, y + h), (0, 0, 255), 10)
+            # cv.line(board, (x + w_piece * j, y), (x + w_piece * j, y + h), (0, 0, 255), 10)
 
-        if config[row][col] == "0":
-            color = classify_piece_color(piece)
+            x_piece = x + w_piece * j
 
-            # shape = classify_piece_shape(piece)
-            # print(shape)
+            update_config(board=board, board_name=board_name, config=config, changes=changes,
+                          x_piece=x_piece, y_piece=y, w_piece=w_piece, h_piece=h_piece)
 
-            config[row][col] = color[0]
+            # show_image("piece", piece)
 
-    # db(config, board_name)
+    elif column_count == 1:
+        for i in range(row_count):
+            # cv.rectangle(board, (x, y), (x + w, y + h), (0, 0, 255), 10)
+            # cv.line(board, (x, y + h_piece * i), (x + w, y + h_piece * i), (0, 0, 255), 10)
+
+            y_piece = y + h_piece * i
+
+            update_config(board=board, board_name=board_name, config=config, changes=changes,
+                          x_piece=x, y_piece=y_piece, w_piece=w_piece, h_piece=h_piece)
+
+            # show_image("piece", piece)
+
+
+def get_initial_board_config(board, board_name):
+    # show_image("board", board)
+
+    mask = get_mask_of_black_pieces(board=board)
+    mask = ~mask
+
+    # save_image(mask, "initial_board_config/train/mask", board_name)
+
+    contours = get_contours(mask, list_type=cv.RETR_LIST, min_area=3000, max_area=25000)
+
+    config = [["0" for _ in range(16)] for _ in range(16)]
+    for c in contours:
+        x, y, w, h = cv.boundingRect(c)
+
+        update_config(board=board, board_name=board_name, config=config,
+                      x_piece=x, y_piece=y, w_piece=w, h_piece=h)
 
     get_number_pieces(board, config)
+
+    img = db(config)
+    save_image(img, "detected_moves/train/config", board_name)
 
     return config
 
@@ -367,14 +256,30 @@ def get_initial_board_config(board):
 def get_intermediary_board_config(board_current, board_current_name, board_prev, board_prev_name, config):
     board_current_copy = board_current.copy()
 
-    mask_diff = get_mask_diff(board_current, board_prev, board_current_name, board_prev_name)
-    save_image(mask_diff, "detected_moves/train/diff", board_current_name)
+    mask_diff = get_mask_diff(board_current=board_current, board_prev=board_prev,
+                              board_current_name=board_current_name, board_prev_name=board_prev_name)
 
-    contours = get_contours(mask_diff, "external", min_area=15000, hw_diff_thresh=100000)
-    img = draw_contours(board_current_copy, contours)
-    save_image(img, "detected_moves/train/moves", board_current_name)
+    # save_image(mask_diff, "detected_moves/train/diff", board_current_name)
 
+    # TODO: check min_area values
+    contours = get_contours(mask=mask_diff, list_type=cv.RETR_EXTERNAL, min_area=15000, hw_diff_thresh=100000)
+
+    img = draw_contours(img=board_current_copy, contours=contours)
+    save_image(img, "detected_moves/test/moves", board_current_name)
+
+    changes = []
     for c in contours:
-        # if board_current_name == "1_03.jpg":
-        #     print(cv.contourArea(c))
-        get_pieces_from_contour(board_current, board_current_name, c, config)
+        # TODO: check contour crop values
+        get_pieces_from_contour(board=board_current, board_name=board_current_name,
+                                contour=c, config=config, changes=changes, contour_crop=30)
+
+    img = db(config)
+    # show_image("t", img)
+    save_image(img, "detected_moves/test/config", board_current_name)
+
+    score = get_score(config, changes)
+
+    # print(score)
+    # show_image(f"{board_current_name}", board_current)
+
+    return score
