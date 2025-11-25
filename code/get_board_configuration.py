@@ -4,7 +4,7 @@ from utilities import show_image, save_image, draw_board_from_config_matrix as d
 from utilities import extend_piece, get_piece_outline
 from piece_classification import classify_piece_color, classify_piece_shape
 from calculate_score import get_score
-from global_variables import hardcoded_color_ranges
+from global_variables import hardcoded_color_ranges, WIDTH_CELL, HEIGHT_CELL, EXTEND_CORNERS
 
 mask_cache = {}
 
@@ -48,55 +48,50 @@ def get_contours(mask, list_type, min_area=0, max_area=float("inf"), hw_diff_thr
 def get_position_from_contour(board, x, y, w, h):
     area_of_interest = board[y:y + h, x:x + w]
 
-    x_center = x + w // 2
-    y_center = y + h // 2
+    x_center = (x + w // 2) - EXTEND_CORNERS
+    y_center = (y + h // 2) - EXTEND_CORNERS
 
-    col = x_center // 192
-    row = y_center // 192
+    col = x_center // WIDTH_CELL
+    row = y_center // HEIGHT_CELL
 
     return row, col, area_of_interest
 
 
 def get_mask_diff(board_current, board_prev, board_current_name, board_prev_name):
-    kernel = np.ones((5, 5), np.uint8)
+    # 3072x3072: 55x55 gblur, diff, mblur 23, erode 5x5 3, mblur 11, dilate 5x5 18
+    lower, upper = hardcoded_color_ranges["black"]
+    kernel_erode = np.ones((5, 5), np.uint8)
+    kernel_dilate = np.ones((11, 11), np.uint8)
 
-    board_current = cv.GaussianBlur(board_current, (55, 55), 0)
-    board_prev = cv.GaussianBlur(board_prev, (55, 55), 0)
+    board_current = cv.GaussianBlur(board_current, (85, 85), 0)
+    board_prev = cv.GaussianBlur(board_prev, (85, 85), 0)
     # show_image("p", board_prev)
     # show_image("c", board_current)
 
-    mask_current = get_mask_of_black_pieces(board_current)
-    mask_cache[board_current_name[:-4]] = mask_current
-    if board_prev_name[:-4] in mask_cache:
-        mask_prev = mask_cache[board_prev_name[:-4]]
-    else:
-        mask_prev = get_mask_of_black_pieces(board_prev)
-    # show_image("mask prev", mask_prev)
-    # show_image("mask current", mask_current)
+    hsv_prev = cv.cvtColor(board_prev, cv.COLOR_BGR2HSV)
+    mask_prev = cv.inRange(hsv_prev, lower, upper)
+
+    hsv_current = cv.cvtColor(board_current, cv.COLOR_BGR2HSV)
+    mask_current = cv.inRange(hsv_current, lower, upper)
+
+    # show_image("mask_prev", mask_prev)
+    # show_image("mask_current", mask_current)
 
     mask_diff = np.subtract(mask_current, mask_prev)
-    # show_image("og", mask_diff)
-    # save_image(mask_diff, "detected_moves/train/diff", board_current_name)
 
-    mask_diff = cv.medianBlur(mask_diff, 13)
-    # show_image("mblur", mask_diff)
-    # save_image(mask_diff, "detected_moves/train/mblur1", board_current_name)
+    # show_image("mask_diff", mask_diff)
 
-    mask_diff = cv.erode(mask_diff, kernel, iterations=2)
+    mask_diff = cv.medianBlur(mask_diff, 11)
+
+    # show_image("diff", mask_diff)
+
+    mask_diff = cv.erode(mask_diff, kernel_erode, iterations=3)
+
     # show_image("erode", mask_diff)
-    # save_image(mask_diff, "detected_moves/train/erode", board_current_name)
 
-    mask_diff = cv.medianBlur(mask_diff, 13)
-    # show_image("mblur", mask_diff)
-    # save_image(mask_diff, "detected_moves/train/mblur2", board_current_name)
+    mask_diff = cv.dilate(mask_diff, kernel_dilate, iterations=9)
 
-    # mask_diff = cv.erode(mask_diff, kernel, iterations=1)
-    # # show_image("erode", mask_diff)
-    # save_image(mask_diff, "detected_moves/train/erode2", board_current_name)
-
-    mask_diff = cv.dilate(mask_diff, kernel, iterations=12)
     # show_image("dilate", mask_diff)
-    # save_image(mask_diff, "detected_moves/train/dilate", board_current_name)
 
     return mask_diff
 
@@ -155,7 +150,11 @@ def get_number_pieces(board, config):
     # show_image("mask", mask)
 
     # TODO: check values
-    contours = get_contours(mask=mask, list_type=cv.RETR_LIST, min_area=1000, max_area=8000, hw_diff_thresh=20)
+    # 3072x3072 values
+    # contours = get_contours(mask=mask, list_type=cv.RETR_LIST, min_area=1000, max_area=8000, hw_diff_thresh=20)
+
+    # 2816x2816 values
+    contours = get_contours(mask=mask, list_type=cv.RETR_LIST, min_area=500, max_area=8000, hw_diff_thresh=20)
 
     for c in contours:
         x, y, w, h = cv.boundingRect(c)
@@ -166,8 +165,12 @@ def get_number_pieces(board, config):
 
         # show_image("piece", piece)
 
+        # print(cv.contourArea(c))
+        # show_image("t", piece)
+
         # TODO: check value
-        if cv.contourArea(c) >= 5000:
+        # 3072x3072 value: 5000
+        if cv.contourArea(c) >= 4000:
             config[row][col] = "2"
         else:
             config[row][col] = "1"
@@ -175,13 +178,13 @@ def get_number_pieces(board, config):
     # show_image("b", board)
 
 
-def get_pieces_from_contour(board, board_name, contour, config, changes, contour_crop):
+def get_pieces_from_contour(board, board_name, contour, config, changes, contour_crop, drawing_board=None):
     x, y, w, h = cv.boundingRect(contour)
-    w -= contour_crop
-    h -= contour_crop
+    w -= (2 * contour_crop)
+    h -= (2 * contour_crop)
 
-    row_count = round(h / 192)
-    column_count = round(w / 192)
+    row_count = round(h / HEIGHT_CELL)
+    column_count = round(w / WIDTH_CELL)
 
     if row_count == 0 or column_count == 0:
         print(f"0 rows, 0 columns {board_name}")
@@ -193,6 +196,9 @@ def get_pieces_from_contour(board, board_name, contour, config, changes, contour
 
     x += contour_crop
     y += contour_crop
+
+    if drawing_board is not None:
+        cv.rectangle(drawing_board, (x, y), (x+w, y+h), (0, 0, 255), 10)
 
     w_piece = w // column_count
     h_piece = h // row_count
@@ -247,35 +253,39 @@ def get_initial_board_config(board, board_name):
 
     get_number_pieces(board, config)
 
-    img = db(config)
-    save_image(img, "detected_moves/train/config", board_name)
+    # img = db(config)
+    # save_image(img, "detected_moves/train/config", board_name)
 
     return config
 
 
-def get_intermediary_board_config(board_current, board_current_name, board_prev, board_prev_name, config):
+def get_intermediary_board_config(board_current, board_current_name, board_prev, board_prev_name, config,
+                                  data_type="train"):
+    save_path = f"detected_moves/{data_type}"
+
     board_current_copy = board_current.copy()
 
     mask_diff = get_mask_diff(board_current=board_current, board_prev=board_prev,
                               board_current_name=board_current_name, board_prev_name=board_prev_name)
 
-    # save_image(mask_diff, "detected_moves/train/diff", board_current_name)
-
     # TODO: check min_area values
-    contours = get_contours(mask=mask_diff, list_type=cv.RETR_EXTERNAL, min_area=15000, hw_diff_thresh=100000)
+    contours = get_contours(mask=mask_diff, list_type=cv.RETR_EXTERNAL, min_area=30000, hw_diff_thresh=100000)
 
-    img = draw_contours(img=board_current_copy, contours=contours)
-    save_image(img, "detected_moves/test/moves", board_current_name)
+    mask_bgr = cv.cvtColor(mask_diff, cv.COLOR_GRAY2BGR)
+    draw_contours(mask_bgr, contours)
+    save_image(mask_bgr, f"{save_path}/mask_diff", board_current_name)
 
     changes = []
     for c in contours:
         # TODO: check contour crop values
         get_pieces_from_contour(board=board_current, board_name=board_current_name,
-                                contour=c, config=config, changes=changes, contour_crop=30)
+                                contour=c, config=config, changes=changes, contour_crop=30,
+                                drawing_board=board_current_copy)
 
-    img = db(config)
+    save_image(board_current_copy, f"{save_path}", board_current_name)
+
     # show_image("t", img)
-    save_image(img, "detected_moves/test/config", board_current_name)
+    # save_image(img, f"detected_moves/{data_type}/config", board_current_name)
 
     score = get_score(config, changes)
 

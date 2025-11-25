@@ -1,7 +1,7 @@
 import cv2 as cv
 import os
 import numpy as np
-from global_variables import hardcoded_color_ranges
+from global_variables import hardcoded_color_ranges, WIDTH_BOARD, HEIGHT_BOARD
 
 COLOR_MAP = {
     "r": "red",
@@ -257,41 +257,40 @@ def compare_configs(config, label):
 def resize_image(img, new_w, new_h):
     h, w = img.shape[:2]
 
-    if h > new_h or w > new_w:
-        show_image("og", img)
-
+    if h > new_h:
         h_crop = h - new_h
-        w_crop = w - new_w
-
         h_start = h_crop // 2
-        w_start = w_crop // 2
         h_end = h - (h_crop - h_start)
-        w_end = w - (w_crop - w_start)
+        img = img[h_start:h_end, :]
 
-        resized_img = img[h_start:h_end, w_start:w_end]
-
-        show_image("smaller", resized_img)
-
-    else:
+    elif h < new_h:
         pad_h = new_h - h
-        pad_w = new_w - w
-
         top = pad_h // 2
         bottom = pad_h - top
+        img = cv.copyMakeBorder(src=img, top=top, bottom=bottom, left=0, right=0,
+                                borderType=cv.BORDER_CONSTANT, value=(0, 0, 0))
+
+    if w > new_w:
+        w_crop = w - new_w
+        w_start = w_crop // 2
+        w_end = w - (w_crop - w_start)
+        img = img[:, w_start:w_end]
+
+    elif w < new_w:
+        pad_w = new_w - w
         left = pad_w // 2
         right = pad_w - left
+        img = cv.copyMakeBorder(src=img, top=0, bottom=0, left=left, right=right,
+                                borderType=cv.BORDER_CONSTANT, value=(0, 0, 0))
 
-        resized_img = cv.copyMakeBorder(src=img, top=top, bottom=bottom, left=left, right=right,
-                                        borderType=cv.BORDER_CONSTANT, value=(0, 0, 0))
-
-    return resized_img
+    return img
 
 
 def extend_piece(amount, x_piece, y_piece, w_piece, h_piece):
     max_extend_left = min(amount, x_piece)
     max_extend_top = min(amount, y_piece)
-    max_extend_right = min(amount, 3072 - x_piece - w_piece)
-    max_extend_bottom = min(amount, 3072 - y_piece - h_piece)
+    max_extend_right = min(amount, WIDTH_BOARD - x_piece - w_piece)
+    max_extend_bottom = min(amount, HEIGHT_BOARD - y_piece - h_piece)
 
     amount = min(max_extend_top, max_extend_right, max_extend_bottom, max_extend_left)
 
@@ -303,22 +302,24 @@ def extend_piece(amount, x_piece, y_piece, w_piece, h_piece):
     return x_piece, y_piece, w_piece, h_piece
 
 
-def get_piece_outline(board, board_name, x_piece, y_piece, w_piece, h_piece):
+def get_piece_outline(board, board_name, x_piece, y_piece, w_piece, h_piece, erode=True):
     lower, upper = hardcoded_color_ranges["black"]
 
     piece = board[y_piece:y_piece + h_piece, x_piece:x_piece + w_piece]
+
+    # show_image("p", piece)
+
     hsv = cv.cvtColor(piece, cv.COLOR_BGR2HSV)
     mask = cv.inRange(hsv, lower, upper)
     mask = ~mask
 
-    # if board_name == "1_07.jpg":
-    #     show_image("outline mask", mask)
+    # show_image("outline mask", mask)
 
-    kernel = np.ones((3, 3), np.uint8)
-    mask = cv.erode(mask, kernel, iterations=1)
+    if erode:
+        kernel = np.ones((3, 3), np.uint8)
+        mask = cv.erode(mask, kernel, iterations=1)
 
-    # if board_name == "1_07.jpg":
-    #     show_image("eroded mask", mask)
+    # show_image("eroded mask", mask)
 
     # TODO: check radius values, window_size=2*radius+1
     offsets = generate_spiral_offsets(radius=10)
@@ -346,8 +347,7 @@ def get_piece_outline(board, board_name, x_piece, y_piece, w_piece, h_piece):
     fill_color = (0, 255, 0)
     cv.floodFill(mask, flood_mask, (seed_point[0], seed_point[1]), fill_color, flags=4)
 
-    # if board_name == "1_07.jpg":
-    #     show_image("flooded mask", mask)
+    # show_image("flooded mask", mask)
 
     mask = cv.inRange(mask, fill_color, fill_color)
 
@@ -358,7 +358,7 @@ def get_piece_outline(board, board_name, x_piece, y_piece, w_piece, h_piece):
     return piece[y_new:y_new + h_new, x_new:x_new + w_new], (x_piece + x_new), (y_piece + y_new), w_new, h_new
 
 
-def get_piece_from_position(board, board_name, row, col):
+def get_piece_from_position(board, board_name, row, col, erode=True):
     y = row * 192
     x = col * 192
     w = 192
@@ -372,6 +372,7 @@ def get_piece_from_position(board, board_name, row, col):
                                                       w_piece=w, h_piece=h)
 
     piece, _, _, _, _ = get_piece_outline(board=board, board_name=board_name,
-                                          x_piece=x_piece, y_piece=y_piece, w_piece=w_piece, h_piece=h_piece)
+                                          x_piece=x_piece, y_piece=y_piece, w_piece=w_piece, h_piece=h_piece,
+                                          erode=erode)
 
     return piece

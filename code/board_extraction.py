@@ -1,6 +1,7 @@
 import cv2 as cv
 import numpy as np
 from utilities import show_image, draw_board_corners, save_image, check_display_and_save as cdas
+from global_variables import WIDTH_BOARD, HEIGHT_BOARD, EXTEND_CORNERS
 
 
 def get_board_corners(edges):
@@ -39,11 +40,31 @@ def get_board_corners(edges):
                 bottom_left = possible_bottom_left
 
     # show_image("test", edges_copy)
+
+    if EXTEND_CORNERS > 0:
+        corners = np.array([top_left, top_right, bottom_right, bottom_left], dtype=np.float32)
+        centroid = np.mean(corners, axis=0)
+        vectors = corners - centroid
+        magnitudes = np.linalg.norm(vectors, axis=1, keepdims=True)
+        magnitudes[magnitudes == 0] = 1.0
+        unit_vectors = vectors / magnitudes
+        extended_corners = corners + (EXTEND_CORNERS * unit_vectors)
+        rounded_corners = np.round(extended_corners).astype(np.int32)
+        new_top_left, new_top_right, new_bottom_right, new_bottom_left = rounded_corners
+        top_left = tuple(new_top_left.tolist())
+        top_right = tuple(new_top_right.tolist())
+        bottom_right = tuple(new_bottom_right.tolist())
+        bottom_left = tuple(new_bottom_left.tolist())
+
     return top_left, top_right, bottom_right, bottom_left
 
 
 def warp_board_perspective(img, width, height, corners):
     top_left, top_right, bottom_right, bottom_left = corners
+
+    # extend_amount = 50
+    # width = width + 2 * extend_amount
+    # height = height + 2 * extend_amount
 
     puzzle = np.array([top_left, top_right, bottom_right, bottom_left], dtype="float32")
     destination_of_puzzle = np.array([[0, 0], [width, 0], [width, height], [0, height]], dtype="float32")
@@ -107,9 +128,10 @@ def extract_board(img, img_name, save_dir, displays, saves):
     cdas(img_copy, img_name, save_dir, displays, saves, "corners")
 
     # TODO: experiment with values (256, 512, 768, 1024, 1280, 1536, 1792, 2048, 2304, 2560, 2816, 3072)
-    width = 3072
-    height = 3072
-    result = warp_board_perspective(img, width, height, corners)
+    # width = 2816
+    # height = 2816
+
+    result = warp_board_perspective(img, WIDTH_BOARD, HEIGHT_BOARD, corners)
 
     cdas(result, img_name, save_dir, displays, saves, "result")
 

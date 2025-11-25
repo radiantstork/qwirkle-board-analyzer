@@ -1,5 +1,5 @@
 import cv2 as cv
-from utilities import resize_image
+from utilities import resize_image, show_image
 from global_variables import colors, hardcoded_color_ranges, templates
 
 
@@ -32,6 +32,10 @@ def classify_piece_shape(piece):
     mask = ~mask
 
     mask = resize_image(mask, 200, 200)
+
+    mask = cv.medianBlur(mask, 3)
+
+    # show_image("mask", mask)
 
     best_score = -1
     shape_index = None
