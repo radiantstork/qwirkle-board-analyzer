@@ -1,6 +1,6 @@
 import cv2 as cv
 from utilities import resize_image, show_image
-from global_variables import colors, hardcoded_color_ranges, templates
+from global_variables import COLORS, HARDCODED_COLOR_RANGES, TEMPLATES
 
 
 def classify_piece_color(piece):
@@ -8,8 +8,8 @@ def classify_piece_color(piece):
 
     max_count = 0
     piece_color = None
-    for color in colors:
-        lower, upper = hardcoded_color_ranges.get(color)
+    for color in COLORS:
+        lower, upper = HARDCODED_COLOR_RANGES.get(color)
 
         hsv = cv.cvtColor(piece, cv.COLOR_BGR2HSV)
         mask = cv.inRange(hsv, lower, upper)
@@ -25,7 +25,7 @@ def classify_piece_color(piece):
 
 
 def classify_piece_shape(piece):
-    lower, upper = hardcoded_color_ranges["black"]
+    lower, upper = HARDCODED_COLOR_RANGES["black"]
 
     hsv = cv.cvtColor(piece, cv.COLOR_BGR2HSV)
     mask = cv.inRange(hsv, lower, upper)
@@ -39,7 +39,8 @@ def classify_piece_shape(piece):
 
     best_score = -1
     shape_index = None
-    for i, template in enumerate(templates):
+    for i, template in enumerate(TEMPLATES):
+        # 0=circle, 1=cross, 2=diamond, 3=square, 4=star4, 5=star8
         template = cv.cvtColor(template, cv.COLOR_BGR2GRAY)
 
         result = cv.matchTemplate(mask, template, cv.TM_CCOEFF_NORMED)

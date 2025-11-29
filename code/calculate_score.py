@@ -29,12 +29,14 @@ def right(config, row, col):
 def leftmost_position(config, row, col):
     while col >= 0 and config[row][col] not in ("0", "1", "2"):
         col -= 1
+
     return col + 1
 
 
 def highest_position(config, row, col):
     while row >= 0 and config[row][col] not in ("0", "1", "2"):
         row -= 1
+
     return row + 1
 
 
@@ -44,6 +46,7 @@ def calculate_bonus(changes):
     for row, col, bonus in changes:
         changes_coords.append((row, col))
         total_bonus += bonus
+
     return changes_coords, total_bonus
 
 
@@ -117,19 +120,127 @@ def vertical_pieces(config, changes):
 
 def get_score(config, changes):
     if len(changes) == 0:
-        print("0 CHANGES SCORE ERROR")
+        print("COULDN'T CALCULATE SCORE: NO CHANGES ERROR")
         return None
 
     if len(changes) == 1:
-        # print("single piece")
-
         return single_piece(config, *changes[0])
 
     if changes[0][0] == changes[1][0]:
-        # print("horizontal placement")
-
         return horizontal_pieces(config, changes)
 
-    # print("vertical placement")
-
     return vertical_pieces(config, changes)
+
+
+# -----------------------
+def right_bonus(config, row, col):
+    if col > 29 or config[row][col] == "0":
+        return 0
+
+    return 1 + right_bonus(config, row, col + 1)
+
+
+def down_bonus(config, row, col):
+    if row > 29 or config[row][col] == "0":
+        return 0
+
+    return 1 + down_bonus(config, row + 1, col)
+
+
+def leftmost_position_bonus(config, row, col):
+    while col >= 0 and config[row][col] != "0":
+        col -= 1
+
+    return col + 1
+
+
+def highest_row_bonus(config, row, col):
+    while row >= 0 and config[row][col] != "0":
+        row -= 1
+
+    return row + 1
+
+
+def single_piece_bonus(config, row, col):
+    row = 15 + row
+    col = 15 + col
+
+    leftmost_col = leftmost_position_bonus(config, row, col)
+    aux = right_bonus(config, row, leftmost_col)
+    score = check_full_line(aux)
+
+    highest_row = highest_row_bonus(config, row, col)
+    aux = down_bonus(config, highest_row, col)
+    score += check_full_line(aux)
+
+    return score
+
+
+def vertical_pieces_bonus(config, changes):
+    coords = []
+    for change in changes:
+        row, col = -change[1], change[0]
+        coords.append((row + 15, col + 15))
+
+    col = coords[0][1]
+    highest_row = highest_row_bonus(config, coords[0][0], col)
+    row = highest_row
+
+    score = 0
+    while row <= 29 and config[row][col] != "0":
+        if (row, col) in coords:
+            leftmost_col = leftmost_position_bonus(config, row, col)
+
+            aux = right_bonus(config, row, leftmost_col)
+            score += check_full_line(aux)
+
+        row += 1
+
+    aux = down_bonus(config, highest_row, col)
+    score += check_full_line(aux)
+
+    return score
+
+
+def horizontal_pieces_bonus(config, changes):
+    coords = []
+    for change in changes:
+        row, col = -change[1], change[0]
+        coords.append((row + 15, col + 15))
+
+    row = coords[0][0]
+    leftmost_col = leftmost_position_bonus(config, row, coords[0][1])
+    col = leftmost_col
+
+    score = 0
+    while col <= 29 and config[row][col] != "0":
+        if (row, col) in coords:
+            highest_row = highest_row_bonus(config, row, col)
+            aux = down_bonus(config, highest_row, col)
+            score += check_full_line(aux)
+
+        col += 1
+
+    aux = right_bonus(config, row, leftmost_col)
+    score += check_full_line(aux)
+
+    return score
+
+
+def get_score_bonus(config, changes):
+    # column, -row, value
+    if len(changes) == 0:
+        print("COULDN'T CALCULATE SCORE: NO CHANGES ERROR")
+        return None
+
+    if len(changes) == 1:
+        # print("SINGLE PIECE")
+        col, row = changes[0][0], -changes[0][1]
+        return single_piece_bonus(config, row, col)
+
+    if changes[0][0] == changes[1][0]:
+        # print("VERTICAL PIECES")
+        return vertical_pieces_bonus(config, changes)
+
+    # print("HORIZONTAL PIECES")
+    return horizontal_pieces_bonus(config, changes)

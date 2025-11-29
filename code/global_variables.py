@@ -2,11 +2,29 @@ import numpy as np
 import cv2 as cv
 
 # 256, 512, 768, 1024, 1280, 1536, 1792, 2048, 2304, 2560, 2816, 3072
-EXTEND_CORNERS = 50
-WIDTH_BOARD = 2816 + 2 * EXTEND_CORNERS
-HEIGHT_BOARD = 2816 + 2 * EXTEND_CORNERS
-WIDTH_CELL = (WIDTH_BOARD - 2 * EXTEND_CORNERS) // 16
-HEIGHT_CELL = (WIDTH_BOARD - 2 * EXTEND_CORNERS) // 16
+BONUS = True
+if BONUS:
+    EXTEND_CORNERS = 0
+
+    WIDTH_BOARD = 2816
+    HEIGHT_BOARD = 2816
+
+    # initialized as None, but defined later in "get_initial_board_config_bonus"
+    WIDTH_CELL = None
+    HEIGHT_CELL = None
+
+    # initialized as None, but defined later in "get_initial_board_config_bonus"
+    X_ORIGIN = None
+    Y_ORIGIN = None
+
+else:
+    EXTEND_CORNERS = 50
+
+    WIDTH_BOARD = 2816 + 2 * EXTEND_CORNERS
+    HEIGHT_BOARD = 2816 + 2 * EXTEND_CORNERS
+
+    WIDTH_CELL = (WIDTH_BOARD - 2 * EXTEND_CORNERS) // 16
+    HEIGHT_CELL = (HEIGHT_BOARD - 2 * EXTEND_CORNERS) // 16
 
 BOARD_EXTRACTION_DISPLAYS = {
     # "original": True,
@@ -53,26 +71,33 @@ BOARD_EXTRACTION_SAVES = {
     # "result": False
 }
 
-hardcoded_color_ranges = {
+# 0=circle   1=cross   2=diamond   3=square   4=star4   5=star8
+# r=red   o=orange   y=yellow   w=white   g=green   b=blue
+HARDCODED_COLOR_RANGES = {
     "red": (np.array([170, 100, 100]), np.array([180, 255, 255])),
     "orange": (np.array([6, 46, 97]), np.array([20, 255, 255])),
     "yellow": (np.array([25, 100, 100]), np.array([35, 255, 255])),
     "green": (np.array([59, 174, 0]), np.array([80, 255, 255])),
     "blue": (np.array([100, 100, 100]), np.array([120, 255, 255])),
-    "white": (np.array([30, 0, 212]), np.array([151, 31, 255])),
+    "white": (np.array([33, 0, 78]), np.array([156, 88, 255])),
     "black": (np.array([0, 0, 0]), np.array([179, 255, 89]))
 }
-colors = ("red", "orange", "yellow", "green", "blue", "white")
+WHITE_RANGE = (
+    np.array([93, 0, 50]),
+    np.array([179, 255, 255])
+)
+COLORS = ("red", "orange", "yellow", "green", "blue", "white")
+SHAPES = ("circle", "cross", "diamond", "square", "star4", "star8")
 
-shapes = ("circle", "cross", "diamond", "square", "star4", "star8")
-
-templates = []
+TEMPLATES = []
+if BONUS:
+    TEMPLATE_PATH = "templates/bonus/shapes"
+else:
+    TEMPLATE_PATH = "templates/shapes"
 for i in range(6):
-    img = cv.imread(f"templates/shapes/{i}.jpg")
-    templates.append(img)
+    img = cv.imread(f"{TEMPLATE_PATH}/{i}.jpg")
+    TEMPLATES.append(img)
 
-# 0=circle   1=cross   2=diamond   3=square   4=star4   5=star8
-# r=red   o=orange   y=yellow   w=white   g=green   b=blue
 TRAIN_1_CONFIG = (("0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"),
                   ("0", "2", "0", "4o", "0", "1", "2b", "3b", "5b", "1b", "0", "1o", "0", "3r", "4r", "2r"),
                   ("0", "0", "0", "4y", "1", "1w", "1", "0", "0", "0", "0", "1r", "1", "3w", "1", "0"),
@@ -177,17 +202,19 @@ TRAIN_4_SCORES = (7, 7, 10, 7, 14, 14, 7, 14, 6, 7, 6, 6, 4, 4, 10, 6, 7, 14, 4,
 TRAIN_5_SCORES = (9, 6, 6, 6, 6, 5, 7, 15, 14, 12, 6, 4, 6, 6, 5, 3, 5, 6, 4, 12)
 TEST_SCORES = (10, 7, 8, 17, 7, 18, 12, 6, 7, 14, 12, 7, 10, 14, 12, 12, 9, 8, 7, 4)
 
-train_120_shaped_pieces = ((1, 3), (1, 6), (1, 7), (1, 8), (1, 9), (1, 11), (1, 13), (1, 14), (1, 15),
-                           (2, 3), (2, 5), (2, 11), (2, 13),
-                           (3, 0), (3, 3), (3, 4), (3, 11), (3, 12),
-                           (4, 0), (4, 3), (4, 11),
-                           (5, 0), (5, 1), (5, 2), (5, 3), (5, 8), (5, 9), (5, 10), (5, 11), (5, 12), (5, 13),
-                           (6, 0), (6, 1), (6, 3), (6, 6), (6, 7), (6, 8), (6, 9),
-                           (8, 6), (8, 10), (8, 11), (8, 12), (8, 13),
-                           (9, 1), (9, 6), (9, 13), (9, 14),
-                           (10, 1), (10, 3), (10, 5), (10, 6), (10, 13),
-                           (11, 1), (11, 3), (11, 4), (11, 8), (11, 9), (11, 10), (11, 11), (11, 12), (11, 13),
-                           (12, 1), (12, 3), (12, 11), (12, 13),
-                           (13, 1), (13, 2), (13, 3), (13, 10),
-                           (14, 1), (14, 3), (14, 6), (14, 7), (14, 8), (14, 9),
-                           (15, 3))
+CONFIG_LABELS_MAP = {
+    "test": TEST_CONFIG,
+    "train_1": TRAIN_1_CONFIG,
+    "train_2": TRAIN_2_CONFIG,
+    "train_3": TRAIN_3_CONFIG,
+    "train_4": TRAIN_4_CONFIG,
+    "train_5": TRAIN_5_CONFIG
+}
+SCORE_LABELS_MAP = {
+    "test": TEST_SCORES,
+    "train_1": TRAIN_1_SCORES,
+    "train_2": TRAIN_2_SCORES,
+    "train_3": TRAIN_3_SCORES,
+    "train_4": TRAIN_4_SCORES,
+    "train_5": TRAIN_5_SCORES
+}

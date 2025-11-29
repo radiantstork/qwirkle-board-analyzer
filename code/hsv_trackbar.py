@@ -6,7 +6,7 @@ def nothing(x):
     pass
 
 
-img_path = "board_extraction/train/result/1_20.jpg"
+img_path = "../images/train/bonus/1_20.jpg"
 img = cv.imread(img_path)
 
 hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)

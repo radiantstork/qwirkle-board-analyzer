@@ -1,7 +1,7 @@
 import cv2 as cv
 import os
 import numpy as np
-from global_variables import hardcoded_color_ranges, WIDTH_BOARD, HEIGHT_BOARD
+from global_variables import HARDCODED_COLOR_RANGES, WIDTH_BOARD, HEIGHT_BOARD, WIDTH_CELL, HEIGHT_CELL, BONUS
 
 COLOR_MAP = {
     "r": "red",
@@ -28,6 +28,50 @@ def show_image(title, img):
     cv.destroyAllWindows()
 
 
+def save_image(img, path, file_name):
+    if not os.path.exists(path):
+        os.makedirs(path)
+        print(f"Created directory {path}")
+
+    full_path = f"{path}/{file_name}"
+    success = cv.imwrite(full_path, img)
+
+    if not success:
+        print(f"Failed to save {full_path}")
+
+
+def verify_game_and_move_index(game_index, move_index, data_type):
+    if BONUS:
+        if game_index != 1:
+            print(f"unknown game index (bonus-{data_type}-{game_index})")
+            return False
+
+        if move_index < 1 or move_index > 20:
+            print(f"unknown move index (bonus-{data_type}-{move_index})")
+            return False
+
+    else:
+        if data_type == "test":
+            if game_index != 1:
+                print(f"unknown game index test-{game_index}")
+                return False
+
+        elif data_type == "train":
+            if game_index < 1 or game_index > 5:
+                print(f"unknown game index train-{game_index}")
+                return False
+
+        else:
+            print(f"unknown data type ({data_type})")
+            return False
+
+        if move_index < 0 or move_index > 20:
+            print(f"unknown move index {data_type}-{move_index}")
+            return False
+
+    return True
+
+
 def draw_board_corners(img, corners):
     cv.circle(img, corners[0], 20, (0, 0, 255), -1)
     cv.circle(img, corners[1], 20, (0, 0, 255), -1)
@@ -35,26 +79,15 @@ def draw_board_corners(img, corners):
     cv.circle(img, corners[3], 20, (0, 0, 255), -1)
 
 
-def save_image(img, directory_path, file_name):
-    if not os.path.exists(directory_path):
-        os.makedirs(directory_path)
-        print(f"Created directory {directory_path}")
-
-    full_path = f"{directory_path}/{file_name}"
-    success = cv.imwrite(full_path, img)
-
-    if not success:
-        print(f"Failed to save {full_path}")
-    # else:
-    #     print(f"Saved file: {full_path}")
-
-
 def check_display_and_save(img, img_name, save_dir, displays, saves, key):
     if displays.get(key):
         show_image(key, img)
 
     if saves.get(key):
-        dir_path = f"{save_dir}/{key}"
+        dir_path = f"{save_dir}"
+        if key != "result":
+            dir_path += f"/{key}"
+
         save_image(img, dir_path, img_name)
 
 
@@ -186,6 +219,19 @@ def draw_board_from_config_matrix(config):
     return img
 
 
+def get_contours(mask, list_type, min_area=0, max_area=float("inf"), hw_diff_thresh=float("inf")):
+    contours, _ = cv.findContours(mask, list_type, cv.CHAIN_APPROX_SIMPLE)
+
+    filtered_contours = []
+    for c in contours:
+        if min_area <= cv.contourArea(c) <= max_area:
+            _, _, w, h = cv.boundingRect(c)
+            if abs(w - h) <= hw_diff_thresh:
+                filtered_contours.append(c)
+
+    return filtered_contours
+
+
 def draw_contours(img, contours):
     for c in contours:
         x, y, w, h = cv.boundingRect(c)
@@ -233,8 +279,6 @@ def get_piece_info(config, row, col):
 
 
 def compare_configs(config, label):
-    print("CHECKING FOR MISTAKES")
-
     mistake_count = 0
     mistakes = []
     for i in range(16):
@@ -249,7 +293,7 @@ def compare_configs(config, label):
 
                 mistake_count += 1
 
-    print(f"total: {mistake_count} mistakes")
+    print(f"TOTAL: {mistake_count} MISTAKES")
 
     return mistakes
 
@@ -303,7 +347,7 @@ def extend_piece(amount, x_piece, y_piece, w_piece, h_piece):
 
 
 def get_piece_outline(board, board_name, x_piece, y_piece, w_piece, h_piece, erode=True):
-    lower, upper = hardcoded_color_ranges["black"]
+    lower, upper = HARDCODED_COLOR_RANGES["black"]
 
     piece = board[y_piece:y_piece + h_piece, x_piece:x_piece + w_piece]
 
@@ -359,20 +403,60 @@ def get_piece_outline(board, board_name, x_piece, y_piece, w_piece, h_piece, ero
 
 
 def get_piece_from_position(board, board_name, row, col, erode=True):
-    y = row * 192
-    x = col * 192
-    w = 192
-    h = 192
+    y = row * HEIGHT_CELL
+    x = col * WIDTH_CELL
+    w = WIDTH_CELL
+    h = HEIGHT_CELL
 
     # piece = board[y:y+h, x:x+w]
     # show_image("p", piece)
 
-    x_piece, y_piece, w_piece, h_piece = extend_piece(amount=50,
-                                                      x_piece=x, y_piece=y,
-                                                      w_piece=w, h_piece=h)
+    x, y, w, h = extend_piece(amount=50,
+                              x_piece=x, y_piece=y,
+                              w_piece=w, h_piece=h)
 
     piece, _, _, _, _ = get_piece_outline(board=board, board_name=board_name,
-                                          x_piece=x_piece, y_piece=y_piece, w_piece=w_piece, h_piece=h_piece,
+                                          x_piece=x, y_piece=y, w_piece=w, h_piece=h,
                                           erode=erode)
 
     return piece
+
+
+def verify_move(changes, score, game_index, move_index, data_type):
+    if not verify_game_and_move_index(game_index, move_index, data_type):
+        return False
+
+    sol_path = f"../images/{data_type}"
+    if data_type == "test":
+        sol_path += "/fake_test/ground-truth"
+    if BONUS:
+        sol_path += "/bonus"
+
+    num = f"0{move_index}" if move_index < 10 else f"{move_index}"
+    file_name = f"{game_index}_{num}.txt"
+    f = open(f"{sol_path}/{file_name}")
+
+    lines = f.readlines()
+    f.close()
+
+    changes_label = []
+    for line in lines[:-1]:
+        line = line.rstrip("\n").split()
+        changes_label.append((int(line[0]), int(line[1]), line[2]))
+    score_label = int(lines[-1])
+
+    changes_label.sort(key=lambda x: (x[0], x[1]))
+    changes.sort(key=lambda x: (x[0], x[1]))
+    if changes != changes_label:
+        print(f"({game_index}_{num}.jpg) WRONG MOVE DETECTED")
+        print(changes)
+        print(changes_label)
+        return False
+
+    if score != score_label:
+        print(f"({game_index}_{num}.jpg) WRONG SCORE")
+        print(score, score_label)
+        return False
+
+    print(f"({game_index}_{num}.jpg) correct")
+    return True
