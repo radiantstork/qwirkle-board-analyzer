@@ -1,7 +1,10 @@
 import cv2 as cv
 import numpy as np
 from utilities import draw_board_corners, check_display_and_save as cdas
+from utilities import get_contours, show_image
 from global_variables import BONUS, WIDTH_BOARD, HEIGHT_BOARD, EXTEND_CORNERS, WHITE_RANGE
+from global_variables import BOARD_EXTRACTION_DISPLAYS, BOARD_EXTRACTION_SAVES
+from global_variables import DATA_READ_PATH
 
 
 def get_candidate_points(contour):
@@ -46,19 +49,18 @@ def extend_board_corners(top_left, top_right, bottom_right, bottom_left):
 
 def get_board_corners(edges):
     top_left = top_right = bottom_left = bottom_right = None
-    contours, _ = cv.findContours(edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contours = get_contours(edges, cv.RETR_EXTERNAL, hw_diff_thresh=500, min_length=3)
+
     max_area = 0
-
     for c in contours:
-        if len(c) > 3:
-            top_left_aux, top_right_aux, bottom_right_aux, bottom_left_aux = get_candidate_points(c)
-            points = np.array([[top_left_aux], [top_right_aux], [bottom_right_aux], [bottom_left_aux]])
-            area = cv.contourArea(points)
+        top_left_aux, top_right_aux, bottom_right_aux, bottom_left_aux = get_candidate_points(c)
+        points = np.array([[top_left_aux], [top_right_aux], [bottom_right_aux], [bottom_left_aux]])
+        area = cv.contourArea(points)
 
-            if area > max_area:
-                max_area = area
-                top_left, top_right = top_left_aux, top_right_aux
-                bottom_right, bottom_left = bottom_right_aux, bottom_left_aux
+        if area > max_area:
+            max_area = area
+            top_left, top_right = top_left_aux, top_right_aux
+            bottom_right, bottom_left = bottom_right_aux, bottom_left_aux
 
     if EXTEND_CORNERS > 0:
         return extend_board_corners(top_left, top_right, bottom_right, bottom_left)
@@ -86,74 +88,58 @@ def warp_board_perspective(img, corners):
     return cv.warpPerspective(img, M, (WIDTH_BOARD, HEIGHT_BOARD))
 
 
-def get_canny_edges(img, img_name, save_dir, displays, saves):
-    # TODO: check what you can do regarding the horizontal line above the board
-
+def get_canny_edges(img, img_name):
     img = cv.split(img)[2]
-    cdas(img, img_name, save_dir, displays, saves, "split")
+    cdas(img, img_name, "split")
 
-    # TODO: experiment with threshold values
     _, img = cv.threshold(img, 100, 150, cv.THRESH_BINARY_INV)
-    cdas(img, img_name, save_dir, displays, saves, "thresh")
+    cdas(img, img_name, "thresh")
 
-    # TODO: experiment with mblur values
     img = cv.medianBlur(img, 7)
-    cdas(img, img_name, save_dir, displays, saves, "mblur")
+    cdas(img, img_name, "mblur")
 
-    # TODO: mess around with iteration counts and order of operations
-    kernel = np.ones((5, 5), np.uint8)
+    kernel = np.ones((3, 3), np.uint8)
+    img = cv.dilate(img, kernel, iterations=1)
+    cdas(img, img_name, "dilate")
 
-    img = cv.dilate(img, kernel, iterations=2)
-    cdas(img, img_name, save_dir, displays, saves, "dilate")
-
-    img = cv.erode(img, kernel, iterations=1)
-    cdas(img, img_name, save_dir, displays, saves, "erode")
-
-    # invert back
-    img = ~img
-
-    # TODO: experiment with threshold values
     edges = cv.Canny(img, 50, 150)
-    cdas(edges, img_name, save_dir, displays, saves, "edges")
+    cdas(edges, img_name, "edges")
 
     return edges
 
 
-def extract_board(img_name, displays, saves, data_type="train"):
-    read_path = f"../images/{data_type}"
-    if data_type == "test":
-        read_path += "/fake_test"
-
-    if BONUS:
-        read_path += "/bonus"
-        save_dir = f"boards/bonus/{data_type}"
-    else:
-        save_dir = f"boards/{data_type}"
-
-    img = cv.imread(f"{read_path}/{img_name}")
-    cdas(img, img_name, save_dir, displays, saves, "original")
+def extract_board(img, img_name):
+    cdas(img, img_name, "original")
 
     if BONUS:
         hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
         mask = cv.inRange(hsv, WHITE_RANGE[0], WHITE_RANGE[1])
-
         corners = get_board_corners_bonus(mask)
-
         board = warp_board_perspective(img, corners)
 
     else:
-        edges = get_canny_edges(img, img_name, save_dir, displays, saves)
+        edges = get_canny_edges(img, img_name)
 
         corners = get_board_corners(edges)
-        if displays.get("corners") or saves.get("corners"):
+        if BOARD_EXTRACTION_DISPLAYS.get("corners", False) or BOARD_EXTRACTION_SAVES.get("corners", False):
             img_copy = img.copy()
             draw_board_corners(img_copy, corners)
-            cdas(img_copy, img_name, save_dir, displays, saves, "corners")
+            cdas(img_copy, img_name, "corners")
 
         board = warp_board_perspective(img, corners)
 
-    cdas(board, img_name, save_dir, displays, saves, "result")
-
+    cdas(board, img_name, "result")
     print(f"({img_name}) extraction finished")
-
     return board
+
+
+def get_boards(game_index, move_index):
+    for i in range(move_index, 21):
+        num = f"0{i}" if i < 10 else f"{i}"
+
+        img_name = f"{game_index}_{num}.jpg"
+        img = cv.imread(f"{DATA_READ_PATH}/{img_name}")
+
+        extract_board(img, img_name)
+
+

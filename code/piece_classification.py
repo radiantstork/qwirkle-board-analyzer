@@ -4,8 +4,6 @@ from global_variables import COLORS, HARDCODED_COLOR_RANGES, TEMPLATES
 
 
 def classify_piece_color(piece):
-    # show_image("piece", piece)
-
     max_count = 0
     piece_color = None
     for color in COLORS:
@@ -13,8 +11,6 @@ def classify_piece_color(piece):
 
         hsv = cv.cvtColor(piece, cv.COLOR_BGR2HSV)
         mask = cv.inRange(hsv, lower, upper)
-
-        # show_image(f"{color}", mask)
 
         count = cv.countNonZero(mask)
         if count > max_count:
@@ -35,18 +31,12 @@ def classify_piece_shape(piece):
 
     mask = cv.medianBlur(mask, 3)
 
-    # show_image("mask", mask)
-
     best_score = -1
     shape_index = None
     for i, template in enumerate(TEMPLATES):
-        # 0=circle, 1=cross, 2=diamond, 3=square, 4=star4, 5=star8
-        template = cv.cvtColor(template, cv.COLOR_BGR2GRAY)
-
         result = cv.matchTemplate(mask, template, cv.TM_CCOEFF_NORMED)
 
         _, score, _, _ = cv.minMaxLoc(result)
-
         if score > best_score:
             best_score = score
             shape_index = i

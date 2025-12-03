@@ -2,11 +2,11 @@ import cv2 as cv
 import numpy as np
 
 
-def nothing(x):
+def nothing(_):
     pass
 
 
-img_path = "../images/train/bonus/1_20.jpg"
+img_path = "../images/train/4_20.jpg"
 img = cv.imread(img_path)
 
 hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
