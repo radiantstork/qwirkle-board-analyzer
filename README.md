@@ -1,2 +1,2 @@
-# quiggle-board-analyzer
-Analyze and calculate scores for images of various quiggle board configurations
+## Documentation 
+Qwirkle state extractor with OpenCV. Documentation can be found in "Documentation.pdf".
